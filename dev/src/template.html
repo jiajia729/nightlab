@@ -12,13 +12,15 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v6.2L4.6 18.6A1.6 1.6 0 0 0 6 21h12a1.6 1.6 0 0 0 1.4-2.4L14 9.2V3"/><path d="M7.2 15h9.6"/><circle cx="10.5" cy="17.6" r=".6" fill="currentColor"/><circle cx="13.6" cy="18.4" r=".5" fill="currentColor"/></svg>
       <h1>夜間實驗室</h1>
     </div>
-    <div class="lv"><span class="hint">第</span><b id="lvNum">1</b><span class="hint">關</span><div class="els" id="els"></div></div>
+    <div class="lv"><b id="lvLabel">1-1</b><span class="lvt" id="lvTitle"></span><div class="els" id="els"></div></div>
     <div class="goal">
-      <div class="row"><span>分數 <b id="score">0</b></span><span class="t">目標 <span id="target">60</span></span></div>
-      <div class="meter"><i id="meter"></i></div>
+      <div class="row"><span>分數 <b id="score">0</b></span><span class="t" id="targetBox">目標 <span id="target">60</span></span></div>
+      <div class="meter" id="meterBox"><i id="meter"></i></div>
+      <div class="glist" id="goalList"></div>
     </div>
     <div class="turns" id="turnsBox"><b id="turns">14</b><span>剩餘回合</span></div>
     <nav class="nav">
+      <button class="btn" id="btnHome" type="button" aria-label="主選單"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5"/><path d="M6.5 10v9h11v-9"/><path d="M10 19v-5h4v5"/></svg></button>
       <button class="btn" id="btnBook" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19"/><path d="M9 7h6M9 10.5h4"/></svg>圖鑑</button>
       <button class="btn" id="btnHelp" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.6"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>規則</button>
       <button class="btn" id="btnMenu" type="button" aria-label="選單"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
@@ -50,23 +52,20 @@
         <div class="layer" id="tiles"></div>
         <div class="layer" id="fx"></div>
       </div>
-      <div class="source"><span class="heat"></span><span id="srcLabel">室溫 25 °C</span></div>
+      <div class="source"><span class="heat"></span><span id="srcLabel">室溫 25 °C</span><span class="cats" id="catBox"></span></div>
     </section>
 
     <section class="side">
       <div class="panel trayp">
-        <header><h2>反應台</h2><span class="hint" id="trayHint"></span></header>
+        <header><h2 id="trayTitle">反應台</h2><span class="hint" id="trayHint"></span></header>
         <div class="tray" id="tray"></div>
       </div>
       <div class="panel candp">
-        <header><h2>可以合成</h2><span class="hint">點選後再點燒杯的一欄，或直接拖過去</span></header>
+        <header><h2 id="candTitle">可以合成</h2><span class="hint" id="candHint">點選後再點燒杯的一欄，或直接拖過去</span></header>
+        <div class="pick" id="pick" hidden><div class="pickels" id="pickEls"></div><input type="search" id="pickQ" placeholder="搜尋化學式或名稱" autocomplete="off"></div>
         <div class="cands" id="cands"></div>
       </div>
-      <div class="tools">
-        <button class="btn spark" id="spark" type="button" title="點燃相鄰的可燃物與氧氣，或觸發光照反應"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M13 2.5 4.5 13.5H11L10 21.5l8.5-11H12z"/></svg>火花 <b>2</b></button>
-        <button class="btn" id="redraw" type="button" title="把反應台上的原子全部換掉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11l-3-3M20 17H9l3 3"/><path d="M20 7.5A8 8 0 0 0 15 4.6M4 16.5A8 8 0 0 0 9 19.4"/></svg>重抽 <b>3</b></button>
-        <button class="btn" id="undo" type="button" title="回到上一步"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>復原 <b>3</b></button>
-      </div>
+      <div class="tools" id="tools"></div>
       <div class="panel logp">
         <header><h2>實驗紀錄</h2><span class="hint">點燒杯裡的分子看資料</span></header>
         <ol class="log" id="log"></ol>

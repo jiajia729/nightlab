@@ -311,7 +311,7 @@ console.log(`  隨機對局 ${actions} 步，最長連鎖 ${maxDepth} 段，${Da
 
 // ------------------------------------------------------------ 7. 提示
 {
-  const st = lvl({ goals: [{ t: 'score', n: 999 }] });
+  const st = lvl({ goals: [{ t: 'score', n: 999 }], tools: { temp: 2 } });
   st.tray = H2O3.slice();
   let h = L.hint(st);
   ok(h && h.kind === 'start', '空燒杯 → 建議從頭開始: ' + JSON.stringify(h && h.kind));

@@ -302,7 +302,29 @@ const Lab = (() => {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
+  /** 故事模式：反應台上每種元素最多放「允許的分子裡最多需要幾個」，避免用不到的原子塞滿反應台 */
+  function atomCap(st) {
+    if (st._cap) return st._cap;
+    const cap = {};
+    for (const id of st.only || ALL_IDS) {
+      const c = C[id];
+      if (c.n > st.traySize || !c.els.every((e) => st.unlocked.includes(e))) continue;
+      for (const e in c.counts) cap[e] = Math.max(cap[e] || 0, c.counts[e]);
+    }
+    Object.defineProperty(st, '_cap', { value: cap, enumerable: false, configurable: true });
+    return cap;
+  }
   function drawAtom(st) {
+    if (st.mode === 'story') {
+      const cap = atomCap(st);
+      for (let k = 0; k < 12; k++) {
+        const e = drawRaw(st);
+        if (st.tray.filter((x) => x === e).length < (cap[e] || 0)) return e;
+      }
+    }
+    return drawRaw(st);
+  }
+  function drawRaw(st) {
     let tot = 0;
     for (const e of st.unlocked) tot += st.bag[e] || 0;
     let r = rand(st) * tot;
@@ -1032,56 +1054,119 @@ const Lab = (() => {
     }
     return out;
   }
-  /** 下一步建議：能馬上得分／推進目標的放法或工具 > 鋪陳（湊成一對）> 從頭開始 */
-  function hint(st) {
+  /** 這個反應在這一關有沒有辦法觸發 */
+  function reachable(st, rx) {
+    const maxT = TEMPS[Math.max(...st.temps)].t;
+    const can = (k) => st.mode === 'sandbox' || st.charges[k] > 0;
+    if (rx.cat && (st.cats.includes(rx.cat.k) || (st.catsAvail.includes(rx.cat.k) && can('cat'))) && maxT >= rx.cat.t) return true;
+    if (rx.cond === 'auto') return true;
+    if (typeof rx.cond === 'number') return maxT >= rx.cond;
+    if (rx.cond === 'burn') return can('spark') || (C[rx.a].ai != null && maxT >= C[rx.a].ai);
+    if (rx.cond === 'spark') return can('spark');
+    if (rx.cond === 'uv') return can('uv');
+    return false;
+  }
+  /** 這個分子對目標有沒有幫助（直接收集，或是能生成目標的反應物） */
+  function goalReactant(st, cid) {
+    let s = 0;
+    for (const g of st.goals || []) {
+      if (g.t !== 'make' && g.t !== 'collect') continue;
+      if (g.t === 'collect' && cid === g.c) s += 40;
+      for (const rx of RX) if ((rx.a === cid || rx.b === cid) && rx.full.includes(g.c) && reachable(st, rx)) { s += 30; break; }
+      const c = C[cid];
+      if (c.dec && c.dec.keep.includes(g.c)) s += 10;
+      if (ELEC[cid] && ELEC[cid].keep.includes(g.c) && st.charges.electro > 0) s += 14;
+      if (c.pho && c.pho.keep.includes(g.c) && st.charges.uv > 0) s += 14;
+    }
+    return s;
+  }
+  /** 落點旁邊的同種分子、之後可以觸發的反應夥伴 */
+  function setupScore(st, cid, r) {
+    if (!r.landing) return 0;
+    const [lx, ly] = r.landing;
+    let s = 0;
+    const v = value(st, cid);
+    for (const [dx, dy] of DIRS) {
+      const c = st.grid[lx + dx] && st.grid[lx + dx][ly + dy];
+      if (!c) continue;
+      if (c.c === cid) s += v * 0.8;
+      const list = PAIR.get(cid + '|' + c.c);
+      if (list) for (const { rx } of list) {
+        if (!reachable(st, rx)) continue;
+        const goalHit = (st.goals || []).some((g) => (g.t === 'make' || g.t === 'collect') && rx.full.includes(g.c));
+        s += goalHit ? 60 : 6;
+      }
+    }
+    return s;
+  }
+  const actVal = (st, r) => r.total + goalGain(st, r.tally) + (r.st && r.st.phase === 'clear' ? 1e6 : 0);
+  /** 放下去之後，再用一次工具（不花回合）能得到多少 */
+  function followUp(st, a) {
+    const s = lite(st);
+    if (!act(s, a)) return { v: 0 };
+    if (s.phase === 'clear') return { v: 1e6 };
+    let best = { v: 0 };
+    for (const t of toolActions(s)) {
+      if (t.type === 'tool' && !['cat', 'electro', 'flame', 'filter', 'distill'].includes(t.k)) continue;
+      const r = simulateAction(s, t);
+      if (r) { const v = actVal(s, r); if (v > best.v) best = { v, a: t, s }; }
+    }
+    return best;
+  }
+  /** 下一步建議（提示列與電腦玩家共用）。rnd：電腦玩家用的隨機擾動 */
+  function advise(st, rnd) {
     if (st.phase !== 'play' || st.mode === 'sandbox') return null;
+    const noise = rnd || (() => 0);
     const cands = candidates(st);
-    let best = null, setup = null;
+    const deep = cands.length * W <= 90;
+    let best = null;
     for (const cid of cands) {
+      const v0 = value(st, cid);
+      const gr = goalReactant(st, cid);
       for (let x = 0; x < W; x++) {
         const r = simulatePlace(st, cid, x);
         if (!r) continue;
-        const v = r.total + goalGain(st, r.tally);
-        if (v > 0) { if (!best || v > best.v) best = { kind: 'place', cid, x, v, ...r }; }
-        else if (r.adj > 0) {
-          const sv = value(st, cid) * (1 + r.adj);
-          if (!setup || sv > setup.sv) setup = { kind: 'setup', cid, x, sv, ...r };
-        }
+        const now = r.total + goalGain(st, r.tally);
+        const su = now === 0 ? setupScore(st, cid, r) : 0;
+        let fu = { v: 0 };
+        if (deep && now === 0 && (su > 0 || gr > 0)) fu = followUp(st, { type: 'place', cid, x });
+        const score = now + su + gr + v0 * 0.05 - colItems(st, x).length * 0.6 + 0.85 * fu.v + noise() * 3;
+        if (!best || score > best.score) best = { cid, x, score, now, fu, r };
       }
     }
     let tool = null;
+    const goalLevel = (st.goals || []).some((g) => g.t !== 'score');
     for (const a of toolActions(st)) {
       const r = simulateAction(st, a);
       if (!r) continue;
-      const gg = goalGain(st, r.tally), win = r.st.phase === 'clear';
-      const v = r.total + gg + (win ? 1e5 : 0);
-      // 儀器次數有限：只有分數夠多、推進目標或引發連鎖時才建議
-      const worth = win || gg > 0 || r.depth >= 2 || r.total >= 25 || a.type === 'spark' || a.type === 'uv';
-      if (v > 0 && worth && (!tool || v > tool.v)) tool = { kind: 'tool', action: a, v, ...r };
-    }
-    if (tool) delete tool.st;
-    // 工具不花回合：只要不比最好的放法差太多就先建議工具
-    if (tool && (!best || tool.v >= best.v * 0.8)) return tool;
-    if (best) return best;
-    if (setup) return setup;
-    if (!cands.length) return null;
-    // 從頭開始：挑「價值 × 之後還容易再做出來」最高的分子
-    let pick = null, ps = -1;
-    if (st.hand) pick = cands[0];
-    else {
-      let tot = 0;
-      for (const e of st.unlocked) tot += st.bag[e] || 0;
-      for (const cid of cands) {
-        let p = Math.pow(value(st, cid), 1.5);
-        for (const e in C[cid].counts) p *= Math.pow((st.bag[e] || 0) / tot, C[cid].counts[e]);
-        if (st.goals) for (const g of st.goals) if (g.c === cid) p *= 50;
-        if (p > ps) { ps = p; pick = cid; }
+      const gg = goalGain(st, r.tally);
+      const win = r.st.phase === 'clear';
+      let v = r.total + gg + (win ? 1e6 : 0);
+      let worth = win || gg > 0 || r.depth >= 2 || r.total >= 20 || ((a.type === 'spark' || a.type === 'uv') && r.total > 0);
+      if (goalLevel && a.type === 'tool' && a.k !== 'cat' && !win && gg <= 0) worth = false; // 有收集／製造目標時，不把儀器浪費在湊分數上
+      let then = null;
+      if (!worth && (a.type === 'temp' || (a.type === 'tool' && a.k === 'cat'))) {
+        // 兩步：先調溫度／加觸媒（沒有立即效果），下一步再用工具
+        let b2 = 0;
+        for (const t of toolActions(r.st)) { if (t.type === 'temp') continue; const r2 = simulateAction(r.st, t); if (r2) { const vv = actVal(r.st, r2); if (vv > b2) { b2 = vv; then = t; } } }
+        if (b2 >= 20) { v = 0.8 * b2; worth = true; }
       }
+      if (worth && v > 0 && (!tool || v > tool.v)) tool = { a, v, r, then };
     }
-    let x = 0;
-    for (let k = 0; k < W; k++) if (canPlace(st, k) && (!canPlace(st, x) || colItems(st, k).length < colItems(st, x).length)) x = k;
-    return { kind: 'start', cid: pick, x };
+    // 工具不花回合：只要不比最好的放法差太多（或放法本身也只是為了之後用工具），就先用工具
+    if (tool && (!best || tool.v >= best.score * 0.7 || (best.now === 0 && best.fu.v <= tool.v * 1.5))) {
+      const { r } = tool;
+      return { kind: 'tool', action: tool.a, then: tool.then, v: tool.v, total: r.total, depth: r.depth, events: r.events, tally: r.tally };
+    }
+    if (!best) return null;
+    const a = { type: 'place', cid: best.cid, x: best.x };
+    const base = { action: a, cid: best.cid, x: best.x, total: best.r.total, depth: best.r.depth, events: best.r.events, adj: best.r.adj, landing: best.r.landing, tally: best.r.tally };
+    if (best.now > 0) return { kind: 'place', ...base };
+    if (best.fu.v > 0 && best.fu.a) return { kind: 'combo', then: best.fu.a, ...base };
+    if (best.r.adj > 0) return { kind: 'setup', ...base };
+    return { kind: 'start', ...base };
   }
+  const hint = (st) => advise(st);
 
   // ---------------------------------------------------------------- 謎題求解（給測試與提示用）
   function puzzleActions(st) {
@@ -1168,7 +1253,7 @@ const Lab = (() => {
     parseFormula, fText, fHTML, balance, balanceInfo, equation, rxEquation, rxSides, decEquation, phoEquation, elecEquation,
     phaseAt, value, upMult, targetFor, setTarget: (b, g) => { TARGET_BASE = b; TARGET_GROWTH = g; },
     candidates, atomsFor, canPlace, sparkable, uvable, rxActive, activeRx, colItems, posOf, countIn, canElectro, nextTemp, hasCharge,
-    newLevel, newSandbox, newRun, startLevel, retryLevel, act, resolve, simulatePlace, simulateAction, hint, toolActions, solve, lite,
+    newLevel, newSandbox, newRun, startLevel, retryLevel, act, resolve, simulatePlace, simulateAction, hint, advise, toolActions, solve, lite,
     goalProgress, goalDone, goalsMet, starOk, countStars, goalGain,
     makeOffers, takeOffer, nextLevel, reactionsOf, rand,
   };
